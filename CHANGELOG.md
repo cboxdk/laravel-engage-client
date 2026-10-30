@@ -5,6 +5,8 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-30
+
 ### Added
 
 - `Cbox\Engage\Contracts\ProductEvents` with `HttpProductEvents` (one queued
@@ -17,3 +19,6 @@ All notable changes to this package are documented here. The format follows
   fallback mailer, `X-Engage-*` steering headers, the `EngageOptions` Mailable trait, and
   `MailRefused` for addresses Engage will not take.
 - `Cbox\Engage\Testing\FakeEngage` and `InteractsWithEngage`.
+
+[Unreleased]: https://github.com/cboxdk/laravel-engage-client/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/cboxdk/laravel-engage-client/releases/tag/v0.1.0
