@@ -5,6 +5,17 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-06
+
+### Added
+
+- Explicit per-workspace `HttpLeads`/`Contracts\Leads` for verified email leads,
+  independent service/feature interests, scoped consent and proven identity links.
+- Typed `LeadChange`, `Interest`, `ConsentChoice`, `IdentityProof`, `LeadDestination`
+  and `LeadReceipt`; terminal erasure receipts and `FakeLeads` for host tests.
+- HTTPS-only destinations, bounded timeouts, no redirects or global-key fallback.
+  Durable retries remain the host application's responsibility.
+
 ## [0.1.0] - 2026-10-30
 
 ### Added
@@ -20,5 +31,6 @@ All notable changes to this package are documented here. The format follows
   `MailRefused` for addresses Engage will not take.
 - `Cbox\Engage\Testing\FakeEngage` and `InteractsWithEngage`.
 
-[Unreleased]: https://github.com/cboxdk/laravel-engage-client/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cboxdk/laravel-engage-client/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/cboxdk/laravel-engage-client/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/cboxdk/laravel-engage-client/releases/tag/v0.1.0

@@ -1,7 +1,7 @@
 {
     "bomFormat": "CycloneDX",
     "specVersion": "1.5",
-    "serialNumber": "urn:uuid:a516acf9-6cb6-4116-92a5-4f05d262c2ba",
+    "serialNumber": "urn:uuid:ad73158a-bb1f-4aa3-b67e-7d86b7da3aa1",
     "version": 1,
     "metadata": {
         "tools": [
@@ -769,11 +769,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/http-foundation@v8.1.10",
+            "bom-ref": "pkg:composer/symfony/http-foundation@v8.1.11",
             "group": "symfony",
             "name": "http-foundation",
-            "version": "v8.1.10",
-            "purl": "pkg:composer/symfony/http-foundation@v8.1.10",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/http-foundation@v8.1.11",
             "description": "Defines an object-oriented layer for the HTTP specification",
             "licenses": [
                 {
@@ -785,11 +785,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/http-kernel@v8.1.10",
+            "bom-ref": "pkg:composer/symfony/http-kernel@v8.1.11",
             "group": "symfony",
             "name": "http-kernel",
-            "version": "v8.1.10",
-            "purl": "pkg:composer/symfony/http-kernel@v8.1.10",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/http-kernel@v8.1.11",
             "description": "Provides a structured process for converting a Request into a Response",
             "licenses": [
                 {
@@ -1041,11 +1041,11 @@
         },
         {
             "type": "library",
-            "bom-ref": "pkg:composer/symfony/routing@v8.1.10",
+            "bom-ref": "pkg:composer/symfony/routing@v8.1.11",
             "group": "symfony",
             "name": "routing",
-            "version": "v8.1.10",
-            "purl": "pkg:composer/symfony/routing@v8.1.10",
+            "version": "v8.1.11",
+            "purl": "pkg:composer/symfony/routing@v8.1.11",
             "description": "Maps an HTTP request to a set of configuration variables",
             "licenses": [
                 {

@@ -1,6 +1,6 @@
 # Cbox Engage client
 
-The Cbox Engage client for Laravel. Three things, all against the workspace's ingest key:
+The Cbox Engage client for Laravel. Product telemetry and messaging against the workspace's ingest key:
 
 - **Product events in.** `ProductEvents::record()` queues one event to Engage's
   `POST /v1/events`; nothing that goes wrong reaches the caller.
@@ -9,6 +9,10 @@ The Cbox Engage client for Laravel. Three things, all against the workspace's in
 - **The `engage` mail driver.** `MAIL_MAILER=engage` sends every Mailable through
   Engage's send gate, with a circuit breaker and a fallback mailer for when Engage is
   down, so a password reset always leaves.
+
+Verified account-free contacts and independent service/feature interests use the separate
+[lead client](docs/cookbook/verified-leads.md), with explicit per-workspace credentials,
+typed consent evidence and identity proof. The host owns durable retry.
 
 Documentation: [docs/index.md](docs/index.md). Start with the
 [quickstart](docs/quickstart.md).
