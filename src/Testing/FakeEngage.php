@@ -9,17 +9,24 @@ use Cbox\Engage\Contracts\ProductEvents;
 use Cbox\Engage\Events\ProductEvent;
 use Cbox\Engage\Exceptions\EngageRejected;
 use Cbox\Engage\Exceptions\EngageUnavailable;
+use Cbox\Engage\Messages\BatchItem;
+use Cbox\Engage\Messages\BatchReceipt;
+use Cbox\Engage\Messages\BatchRecipient;
+use Cbox\Engage\Messages\BatchState;
+use Cbox\Engage\Messages\BatchStatus;
 use Cbox\Engage\Messages\MessageReceipt;
 use Cbox\Engage\Messages\MessageState;
 use Cbox\Engage\Messages\MessageStatus;
+use Cbox\Engage\Messages\OutgoingBatch;
 use Cbox\Engage\Messages\OutgoingMessage;
 use Cbox\Engage\Messages\ReceiptStatus;
 use PHPUnit\Framework\Assert;
 
 /**
  * Cbox Engage in memory: product events are kept, messages are kept and answered with a
- * queued receipt (or gated out, or unavailable, as the test says). Nothing is queued,
- * nothing leaves the process.
+ * queued receipt (or gated out, or unavailable, as the test says). A batch is fanned out
+ * at once: each recipient gets a receipt from the same keyspace as `send()`, so a
+ * recipient key already sent is that message. Nothing is queued, nothing leaves the process.
  */
 class FakeEngage implements Messages, ProductEvents
 {
@@ -31,6 +38,12 @@ class FakeEngage implements Messages, ProductEvents
 
     /** @var array<string, MessageReceipt> */
     private array $receipts = [];
+
+    /** @var list<OutgoingBatch> */
+    private array $batches = [];
+
+    /** @var array<string, array{receipt: BatchReceipt, batch: OutgoingBatch, items: list<BatchItem>}> */
+    private array $batchReceipts = [];
 
     /** @var list<string> */
     private ?array $refusing = null;
@@ -50,8 +63,84 @@ class FakeEngage implements Messages, ProductEvents
 
         $this->messages[] = $message;
 
-        if (isset($this->receipts[$message->idempotencyKey])) {
-            $receipt = $this->receipts[$message->idempotencyKey];
+        return $this->receiptFor($message->idempotencyKey, $message->to->externalId);
+    }
+
+    public function sendMany(OutgoingBatch $batch): BatchReceipt
+    {
+        if ($this->failing !== null) {
+            throw new EngageUnavailable('Cbox Engage is unavailable (faked).', $this->failing);
+        }
+
+        $this->batches[] = $batch;
+
+        if (isset($this->batchReceipts[$batch->idempotencyKey])) {
+            $receipt = $this->batchReceipts[$batch->idempotencyKey]['receipt'];
+
+            return new BatchReceipt($receipt->id, $receipt->status, $receipt->recipients, false);
+        }
+
+        $items = [];
+
+        foreach ($batch->recipients as $recipient) {
+            $message = $this->receiptFor($recipient->idempotencyKey, $recipient->to->externalId);
+            $items[] = new BatchItem(
+                $recipient->idempotencyKey,
+                $message->status->value,
+                $message->id,
+                $message->contactId,
+                reasons: $message->reasons,
+            );
+        }
+
+        $receipt = new BatchReceipt('mb_fake_'.count($this->batchReceipts) + 1, BatchState::Completed, count($batch->recipients));
+        $this->batchReceipts[$batch->idempotencyKey] = ['receipt' => $receipt, 'batch' => $batch, 'items' => $items];
+
+        return $receipt;
+    }
+
+    public function batch(string $id, ?string $cursor = null, int $limit = 100): BatchStatus
+    {
+        if ($this->failing !== null) {
+            throw new EngageUnavailable('Cbox Engage is unavailable (faked).', $this->failing);
+        }
+
+        foreach ($this->batchReceipts as $key => ['receipt' => $receipt, 'batch' => $batch, 'items' => $items]) {
+            if ($receipt->id !== $id) {
+                continue;
+            }
+
+            $counts = [];
+
+            foreach ($items as $item) {
+                $counts[$item->status] = ($counts[$item->status] ?? 0) + 1;
+            }
+
+            $offset = $cursor === null ? 0 : max(0, (int) $cursor);
+            $limit = max(1, min(1000, $limit));
+
+            return new BatchStatus(
+                id: $id,
+                status: BatchState::Completed,
+                idempotencyKey: $key,
+                purpose: $batch->purpose,
+                brandId: $batch->brand,
+                templateId: $batch->template,
+                recipients: count($items),
+                counts: $counts,
+                items: array_slice($items, $offset, $limit),
+                nextCursor: $offset + $limit < count($items) ? (string) ($offset + $limit) : null,
+            );
+        }
+
+        throw new EngageRejected(404, 'not_found');
+    }
+
+    /** One receipt per idempotency key, shared by `send()` and every batch recipient. */
+    private function receiptFor(string $idempotencyKey, ?string $externalId): MessageReceipt
+    {
+        if (isset($this->receipts[$idempotencyKey])) {
+            $receipt = $this->receipts[$idempotencyKey];
 
             return new MessageReceipt($receipt->id, $receipt->status, $receipt->reasons, $receipt->contactId, false);
         }
@@ -60,10 +149,10 @@ class FakeEngage implements Messages, ProductEvents
             'msg_fake_'.count($this->receipts) + 1,
             $this->refusing === null ? ReceiptStatus::Queued : ReceiptStatus::GatedOut,
             $this->refusing ?? [],
-            $message->to->externalId === null ? null : 'ct_fake_'.$message->to->externalId,
+            $externalId === null ? null : 'ct_fake_'.$externalId,
         );
 
-        return $this->receipts[$message->idempotencyKey] = $receipt;
+        return $this->receipts[$idempotencyKey] = $receipt;
     }
 
     public function status(string $id): MessageStatus
@@ -140,6 +229,15 @@ class FakeEngage implements Messages, ProductEvents
     }
 
     /**
+     * @param  (callable(OutgoingBatch): bool)|null  $where
+     * @return list<OutgoingBatch>
+     */
+    public function batchesSent(?callable $where = null): array
+    {
+        return array_values(array_filter($this->batches, static fn (OutgoingBatch $batch): bool => $where === null || $where($batch)));
+    }
+
+    /**
      * @param  (callable(ProductEvent): bool)|null  $where
      */
     public function assertRecorded(string $name, ?callable $where = null): void
@@ -171,8 +269,38 @@ class FakeEngage implements Messages, ProductEvents
             : 'No message matching the condition was sent to Cbox Engage.');
     }
 
+    /**
+     * @param  (callable(OutgoingBatch): bool)|null  $where
+     */
+    public function assertBatchSent(?callable $where = null): void
+    {
+        Assert::assertNotEmpty($this->batchesSent($where), $where === null
+            ? 'No message batch was sent to Cbox Engage.'
+            : 'No message batch matching the condition was sent to Cbox Engage.');
+    }
+
+    /**
+     * A recipient of any batch sent matches: `fn (BatchRecipient $r, OutgoingBatch $b): bool`.
+     *
+     * @param  callable(BatchRecipient, OutgoingBatch): bool  $where
+     */
+    public function assertBatchRecipient(callable $where): void
+    {
+        $matched = false;
+
+        foreach ($this->batches as $batch) {
+            foreach ($batch->recipients as $recipient) {
+                $matched = $matched || $where($recipient, $batch);
+            }
+        }
+
+        Assert::assertTrue($matched, 'No recipient of a message batch matched the condition.');
+    }
+
+    /** No message and no batch was sent. */
     public function assertNothingSent(): void
     {
         Assert::assertSame([], $this->messages, 'Messages were sent to Cbox Engage: '.implode(', ', array_map(static fn (OutgoingMessage $message): string => $message->idempotencyKey, $this->messages)));
+        Assert::assertSame([], $this->batches, 'Message batches were sent to Cbox Engage: '.implode(', ', array_map(static fn (OutgoingBatch $batch): string => $batch->idempotencyKey, $this->batches)));
     }
 }

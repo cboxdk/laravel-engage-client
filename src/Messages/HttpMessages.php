@@ -35,6 +35,21 @@ class HttpMessages implements Messages
         return MessageStatus::fromArray($this->body($response));
     }
 
+    public function sendMany(OutgoingBatch $batch): BatchReceipt
+    {
+        $response = $this->call(fn (PendingRequest $request): Response => $request->post('/v1/message-batches', $batch->toArray()));
+
+        return BatchReceipt::fromArray($this->body($response));
+    }
+
+    public function batch(string $id, ?string $cursor = null, int $limit = 100): BatchStatus
+    {
+        $query = array_filter(['limit' => max(1, min(1000, $limit)), 'cursor' => $cursor], static fn (int|string|null $value): bool => $value !== null && $value !== '');
+        $response = $this->call(fn (PendingRequest $request): Response => $request->get('/v1/message-batches/'.rawurlencode($id), $query));
+
+        return BatchStatus::fromArray($this->body($response));
+    }
+
     /**
      * @param  callable(PendingRequest): Response  $call
      */

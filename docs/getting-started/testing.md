@@ -44,9 +44,17 @@ message a Mailable became.
 | `assertNotRecorded(string $name)` | No event with that name was recorded. |
 | `assertNothingRecorded()` | No event at all. |
 | `assertSent(?callable $where = null)` | A message (matching `$where`) was sent. |
-| `assertNothingSent()` | No message at all. |
+| `assertNothingSent()` | No message and no batch at all. |
+| `assertBatchSent(?callable $where = null)` | A batch (an `OutgoingBatch` matching `$where`) was sent. |
+| `assertBatchRecipient(callable $where)` | A recipient of any batch matched `fn (BatchRecipient $r, OutgoingBatch $b): bool`. |
 | `recorded(?string $name = null): list<ProductEvent>` | The events, for your own assertions. |
 | `sent(?callable $where = null): list<OutgoingMessage>` | The messages. |
+| `batchesSent(?callable $where = null): list<OutgoingBatch>` | The batches. |
+
+A batch is fanned out at once: `sendMany()` answers a completed receipt, and
+`batch($id)` lists one item per recipient, `queued` (or `gated_out` under `willRefuse()`).
+Recipient keys share one keyspace with `send()`, as in Engage: a key already sent is the
+same message id.
 
 ```php
 $engage = $this->fakeEngage();

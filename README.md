@@ -5,7 +5,9 @@ The Cbox Engage client for Laravel. Product telemetry and messaging against the 
 - **Product events in.** `ProductEvents::record()` queues one event to Engage's
   `POST /v1/events`; nothing that goes wrong reaches the caller.
 - **Transactional messages out.** `Messages::send()` and `Messages::status()` over
-  `POST /v1/messages` and `GET /v1/messages/{id}`, with typed receipts and exceptions.
+  `POST /v1/messages` and `GET /v1/messages/{id}`, with typed receipts and exceptions;
+  `Messages::sendMany()` and `Messages::batch()` for one message to up to 1000
+  recipients over `POST /v1/message-batches`.
 - **The `engage` mail driver.** `MAIL_MAILER=engage` sends every Mailable through
   Engage's send gate, with a circuit breaker and a fallback mailer for when Engage is
   down, so a password reset always leaves.
@@ -55,7 +57,7 @@ $this->events->record(ProductEvent::byContact(
 
 ```php
 use Cbox\Engage\Contracts\Messages;
-use Cbox\Engage\Messages\{InlineContent, OutgoingMessage, Recipient};
+use Cbox\Engage\Messages\{BatchRecipient, InlineContent, OutgoingBatch, OutgoingMessage, Recipient};
 
 $receipt = app(Messages::class)->send(new OutgoingMessage(
     idempotencyKey: "otp:{$user->id}:{$slot}",
@@ -66,6 +68,20 @@ $receipt = app(Messages::class)->send(new OutgoingMessage(
 
 $receipt->queued();          // or ->gatedOut() with ->reasons
 app(Messages::class)->status($receipt->id)->latestEvent()?->status;   // 'delivered', 'bounced', …
+
+// One message to many: each recipient its own key and variables, each its own message.
+$batch = app(Messages::class)->sendMany(new OutgoingBatch(
+    idempotencyKey: "incident:{$incident->id}:update:{$update->id}",
+    brand: 'br_01…',
+    content: new InlineContent('{{ page }}: {{ title }}', '<p>{{ update }}</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>'),
+    variables: ['page' => $page->name, 'title' => $incident->title, 'update' => $update->body],
+    recipients: $subscribers->map(fn ($s) => new BatchRecipient(
+        "incident:{$incident->id}:update:{$update->id}:{$s->id}",
+        new Recipient(email: $s->email),
+        ['unsubscribe_url' => $s->unsubscribeUrl()],
+    ))->all(),
+));
+app(Messages::class)->batch($batch->id)->count('gated_out');
 ```
 
 ## The mail driver
