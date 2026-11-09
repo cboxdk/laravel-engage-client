@@ -5,6 +5,22 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `Messages::sendMany(OutgoingBatch): BatchReceipt` over `POST /v1/message-batches`: one
+  message to up to 1000 recipients, each a `BatchRecipient` with its own idempotency key,
+  variables and optional company. `Messages::batch($id, $cursor, $limit): BatchStatus`
+  over `GET /v1/message-batches/{id}`: counts by status and a page of `BatchItem`s.
+- `FakeEngage` answers batches from the same keyspace as `send()`, with
+  `assertBatchSent()`, `assertBatchRecipient()` and `batchesSent()`;
+  `assertNothingSent()` now also fails on a batch.
+
+### Changed
+
+- `Contracts\Messages` has two new methods. An app that implements the contract itself
+  (not `HttpMessages`, `NullMessages` or `FakeEngage`) must add them. Needs a Cbox Engage
+  with the message batches API.
+
 ## [0.1.1] - 2026-11-06
 
 ### Added

@@ -7,6 +7,7 @@ use Cbox\Engage\Exceptions\EngageException;
 use Cbox\Engage\Exceptions\EngageNotConfigured;
 use Cbox\Engage\Exceptions\EngageRejected;
 use Cbox\Engage\Exceptions\EngageUnavailable;
+use Cbox\Engage\Messages\BatchState;
 use Cbox\Engage\Messages\DeliveryStatus;
 use Cbox\Engage\Messages\HttpMessages;
 use Cbox\Engage\Messages\InlineContent;
@@ -162,4 +163,87 @@ it('refuses to be used when Engage is not configured', function (): void {
     expect($messages)->toBeInstanceOf(NullMessages::class)
         ->and(fn () => $messages->send(outgoing()))->toThrow(EngageNotConfigured::class)
         ->and(fn () => $messages->status('msg_1'))->toThrow(EngageNotConfigured::class);
+});
+
+it('posts a batch and maps the receipt', function (): void {
+    Http::fake(['engage.test/v1/message-batches' => Http::response(['id' => 'mb_1', 'status' => 'accepted', 'recipients' => 1, 'created' => true], 202)]);
+    $batch = incidentBatch();
+
+    $receipt = app(Messages::class)->sendMany($batch);
+
+    expect($receipt->id)->toBe('mb_1')
+        ->and($receipt->status)->toBe(BatchState::Accepted)
+        ->and($receipt->recipients)->toBe(1)
+        ->and($receipt->created)->toBeTrue();
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+        && $request->url() === 'https://engage.test/v1/message-batches'
+        && $request->hasHeader('Authorization', 'Bearer ek_test')
+        && $request->data() === $batch->toArray());
+});
+
+it('maps a replayed batch key', function (): void {
+    Http::fake(['engage.test/v1/message-batches' => Http::response(['id' => 'mb_1', 'status' => 'completed', 'recipients' => 3, 'created' => false], 200)]);
+
+    $receipt = app(Messages::class)->sendMany(incidentBatch());
+
+    expect($receipt->created)->toBeFalse()->and($receipt->status)->toBe(BatchState::Completed)->and($receipt->recipients)->toBe(3);
+});
+
+it('reads a batch with its counts and a page of recipients', function (): void {
+    Http::fake(['engage.test/v1/message-batches/mb_1*' => Http::response([
+        'id' => 'mb_1', 'idempotency_key' => 'incident:inc_42:update:3', 'status' => 'completed', 'purpose' => 'transactional',
+        'brand_id' => 'br_1', 'template_id' => null, 'recipients' => 3,
+        'counts' => ['pending' => 0, 'rejected' => 1, 'queued' => 0, 'gated_out' => 1, 'sent' => 1, 'failed' => 0, 'expired' => 0],
+        'created_at' => '2026-11-09T10:00:00Z', 'completed_at' => '2026-11-09T10:00:02Z',
+        'items' => [
+            ['idempotency_key' => 'k1', 'status' => 'sent', 'message_id' => 'msg_1', 'contact_id' => 'ct_1', 'delivery_status' => 'delivered', 'reasons' => [], 'error' => null],
+            ['idempotency_key' => 'k2', 'status' => 'gated_out', 'message_id' => 'msg_2', 'contact_id' => null, 'delivery_status' => null, 'reasons' => ['suppressed'], 'error' => null],
+            ['idempotency_key' => 'k3', 'status' => 'rejected', 'message_id' => null, 'contact_id' => null, 'delivery_status' => null, 'reasons' => [], 'error' => ['field' => 'company_external_id', 'message' => 'No current company membership.']],
+        ],
+        'next_cursor' => '42',
+    ])]);
+
+    $status = app(Messages::class)->batch('mb_1', cursor: '17', limit: 3);
+
+    expect($status->completed())->toBeTrue()
+        ->and($status->idempotencyKey)->toBe('incident:inc_42:update:3')
+        ->and($status->recipients)->toBe(3)
+        ->and($status->count('sent'))->toBe(1)
+        ->and($status->count('gated_out'))->toBe(1)
+        ->and($status->count('unknown'))->toBe(0)
+        ->and($status->completedAt?->toIso8601ZuluString())->toBe('2026-11-09T10:00:02Z')
+        ->and($status->nextCursor)->toBe('42')
+        ->and($status->items)->toHaveCount(3)
+        ->and($status->items[0]->sent())->toBeTrue()
+        ->and($status->items[0]->deliveryStatus)->toBe(DeliveryStatus::Delivered)
+        ->and($status->items[1]->gatedOut())->toBeTrue()
+        ->and($status->items[1]->reasons)->toBe(['suppressed'])
+        ->and($status->items[2]->rejected())->toBeTrue()
+        ->and($status->items[2]->errorField)->toBe('company_external_id')
+        ->and($status->items[2]->messageId)->toBeNull();
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'GET'
+        && $request->url() === 'https://engage.test/v1/message-batches/mb_1?limit=3&cursor=17');
+});
+
+it('throws EngageUnavailable with Retry-After when the batch rate limit is hit', function (): void {
+    Http::fake(['engage.test/*' => Http::response(['error' => 'rate_limited'], 429, ['Retry-After' => '30'])]);
+    $throttled = null;
+
+    try {
+        app(Messages::class)->sendMany(incidentBatch());
+    } catch (EngageUnavailable $e) {
+        $throttled = $e;
+    }
+
+    expect($throttled?->reason)->toBe('http_429')->and($throttled?->retryAfter)->toBe(30);
+});
+
+it('refuses batches when Engage is not configured', function (): void {
+    config(['engage.url' => '']);
+    $messages = app(Messages::class);
+
+    expect(fn () => $messages->sendMany(incidentBatch()))->toThrow(EngageNotConfigured::class)
+        ->and(fn () => $messages->batch('mb_1'))->toThrow(EngageNotConfigured::class);
 });

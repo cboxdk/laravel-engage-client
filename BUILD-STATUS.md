@@ -7,6 +7,9 @@ What this package does today, and what it deliberately does not.
 - Product events: contract, HTTP implementation (queued job, tries 5, backoff
   60/300/900/3600 s, `afterCommit`, 429 `Retry-After` honoured), null implementation.
 - Messages API: send and status, request/response mapping, the three typed exceptions.
+- Message batches: `sendMany()` and `batch()` with typed `OutgoingBatch`, `BatchRecipient`,
+  `BatchReceipt`, `BatchStatus` and `BatchItem`; validated client-side to Engage's limits
+  (1000 recipients, unique recipient keys, 50 variables a recipient); fake support.
 - The `engage` mail driver: one Engage message per recipient, steering headers read and
   stripped, attachments base64-encoded, Engage message id on the `SentMessage`, circuit
   breaker (closed / open / half-open with a single probe) in the cache, fallback through
@@ -15,6 +18,9 @@ What this package does today, and what it deliberately does not.
 - `FakeEngage` + `InteractsWithEngage`; the package's own suite runs on them.
 
 ## Not built
+
+- Automatic chunking of more than 1000 recipients: `OutgoingBatch` refuses them, and the
+  app sends one batch per chunk, named by who is in it (docs show how).
 
 - Engage templates through the mail driver: the driver always sends inline content (the
   rendered Mailable). Use `Messages::send()` with a `template` for template sends.

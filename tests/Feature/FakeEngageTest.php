@@ -7,8 +7,11 @@ use Cbox\Engage\Contracts\ProductEvents;
 use Cbox\Engage\Events\ProductEvent;
 use Cbox\Engage\Exceptions\EngageRejected;
 use Cbox\Engage\Exceptions\EngageUnavailable;
+use Cbox\Engage\Messages\BatchRecipient;
+use Cbox\Engage\Messages\BatchState;
 use Cbox\Engage\Messages\InlineContent;
 use Cbox\Engage\Messages\MessageState;
+use Cbox\Engage\Messages\OutgoingBatch;
 use Cbox\Engage\Messages\OutgoingMessage;
 use Cbox\Engage\Messages\Recipient;
 use PHPUnit\Framework\AssertionFailedError;
@@ -68,4 +71,50 @@ it('can refuse and fail on demand', function (): void {
 
     $fake->willAccept();
     expect($fake->send(new OutgoingMessage('k2', new Recipient('usr_1'), 'br_1', content: new InlineContent('s', '<p>h</p>')))->queued())->toBeTrue();
+});
+
+it('answers a batch per recipient from the same keyspace as send, replays its key, and pages its status', function (): void {
+    $fake = $this->fakeEngage();
+    $single = $fake->send(new OutgoingMessage('incident:1:usr_1', new Recipient('usr_1'), 'br_1', content: new InlineContent('s', '<p>h</p>')));
+    $batch = new OutgoingBatch('incident:1', 'br_1', [
+        new BatchRecipient('incident:1:usr_1', new Recipient('usr_1')),
+        new BatchRecipient('incident:1:sub_2', new Recipient(email: 'grace@example.com'), ['unsubscribe_url' => 'https://status.test/u/2']),
+    ], content: new InlineContent('Down', '<p>{{ unsubscribe_url }}</p>'));
+
+    $receipt = app(Messages::class)->sendMany($batch);
+    $again = app(Messages::class)->sendMany($batch);
+
+    expect($receipt->status)->toBe(BatchState::Completed)
+        ->and($receipt->recipients)->toBe(2)
+        ->and($again->id)->toBe($receipt->id)
+        ->and($again->created)->toBeFalse();
+
+    $status = app(Messages::class)->batch($receipt->id, limit: 1);
+    expect($status->count('queued'))->toBe(2)
+        ->and($status->items)->toHaveCount(1)
+        ->and($status->items[0]->messageId)->toBe($single->id)   // the key was already sent on its own
+        ->and($status->nextCursor)->toBe('1')
+        ->and(app(Messages::class)->batch($receipt->id, cursor: '1')->items[0]->contactId)->toBeNull()
+        ->and(fn () => app(Messages::class)->batch('mb_nope'))->toThrow(EngageRejected::class);
+
+    $fake->assertBatchSent();
+    $fake->assertBatchSent(fn (OutgoingBatch $b): bool => $b->idempotencyKey === 'incident:1');
+    $fake->assertBatchRecipient(fn (BatchRecipient $r): bool => $r->to->email === 'grace@example.com' && $r->variables['unsubscribe_url'] === 'https://status.test/u/2');
+    expect($fake->batchesSent())->toHaveCount(2)
+        ->and(fn () => $fake->assertBatchRecipient(fn (BatchRecipient $r): bool => $r->to->email === 'linus@example.com'))->toThrow(AssertionFailedError::class)
+        ->and(fn () => $fake->assertBatchSent(fn (OutgoingBatch $b): bool => $b->brand === 'br_2'))->toThrow(AssertionFailedError::class);
+});
+
+it('gates out every batch recipient when refusing, fails on demand, and counts batches as sent', function (): void {
+    $fake = $this->fakeEngage();
+    $fake->assertNothingSent();
+    $batch = new OutgoingBatch('b', 'br_1', [new BatchRecipient('b:1', new Recipient('usr_1'))], template: 'tp_1');
+
+    $fake->willRefuse(['suppressed']);
+    $status = $fake->batch($fake->sendMany($batch)->id);
+    expect($status->items[0]->gatedOut())->toBeTrue()->and($status->items[0]->reasons)->toBe(['suppressed']);
+
+    $fake->willFail();
+    expect(fn () => $fake->sendMany($batch))->toThrow(EngageUnavailable::class)
+        ->and(fn () => $fake->assertNothingSent())->toThrow(AssertionFailedError::class);
 });

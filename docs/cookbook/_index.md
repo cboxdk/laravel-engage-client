@@ -10,3 +10,4 @@ weight: 30
 - [Invoice with an attachment](invoice-with-attachment.md) — a PDF through the messages API, and the same through the mail driver
 
 - [Synchronize verified leads](verified-leads.md): explicit destinations, scoped opt-in and durable recovery.
+- [An update to every subscriber](update-every-subscriber.md): one batch per thousand recipients, each with its own key and unsubscribe link.

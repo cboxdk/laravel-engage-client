@@ -22,4 +22,14 @@ class NullMessages implements Messages
     {
         throw EngageNotConfigured::forMessages();
     }
+
+    public function sendMany(OutgoingBatch $batch): BatchReceipt
+    {
+        throw EngageNotConfigured::forMessages();
+    }
+
+    public function batch(string $id, ?string $cursor = null, int $limit = 100): BatchStatus
+    {
+        throw EngageNotConfigured::forMessages();
+    }
 }
